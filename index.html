@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>✨ 2학기 과학 OT 실시간 워드클라우드</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/wordcloud2.js/1.2.2/wordcloud2.min.js">
+const questions = [
+  '여름방학이 어땠는지 5글자로 표현한다면?',
+  '여름방학동안 가장 맛있게 먹은 음식은?',
+  '오늘도 여름방학이었다면 나는 이걸 할 거다!',
+  '여름 하면 떠오르는 과학 현상은?',
+  '1학기 단원 중 가장 흥미로웠던 단원은?',
+  '2학기에 가장 기대되는 단원은?',
+  '1학기에 가장 재미있었던 실험은?',
+  '2학기 때 가장 기대되는 실험은?',
+  '여러분들은 과학 시간에 무얼 하고 싶나요?',
+  '과학을 5글자로 표현한다면?'
+];
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+<style>
+*{box-sizing:border-box} body{margin:0;font-family:'Malgun Gothic','Noto Sans KR',sans-serif;background:#f4f7f6;color:#111;text-align:center}
+header{padding:20px 16px 8px} h1{margin:0;font-size:clamp(25px,4vw,40px)}
+#question{margin:12px auto 0;max-width:1000px;font-size:clamp(20px,3vw,32px);font-weight:700}
+.badge{display:inline-block;padding:5px 10px;border-radius:999px;background:#e9eefc;color:#3157b7;font-size:14px;margin-top:8px}
+.controls{margin:18px auto;padding:16px;background:#fff;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,.10);max-width:1000px}
+input[type=text]{padding:12px;font-size:18px;border:1px solid #bbb;border-radius:7px;width:min(500px,75vw)}
+button{padding:11px 16px;font-size:16px;margin:4px;border:0;border-radius:7px;background:#1677e8;color:#fff;cursor:pointer}
+button:hover{filter:brightness(.92)} .danger{background:#dc3545}.secondary{background:#555}.green{background:#198754}
+#canvas-container{margin:18px auto;background:#fff;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,.10);padding:10px;width:min(1000px,94vw);height:min(600px,62vh);min-height:430px;overflow:hidden}
+#wordCanvas{width:100%;height:100%;position:relative}
+@keyframes floatUpDown{0%,100%{margin-top:0}50%{margin-top:-10px}}
+.float-word{animation-name:floatUpDown;animation-iteration-count:infinite;animation-timing-function:ease-in-out;text-shadow:2px 2px 4px rgba(0,0,0,.10)}
+.delay-1{animation-duration:3s;animation-delay:0s}.delay-2{animation-duration:3.5s;animation-delay:-1s}.delay-3{animation-duration:4.2s;animation-delay:-2s}.delay-4{animation-duration:2.8s;animation-delay:-.5s}.delay-5{animation-duration:4.5s;animation-delay:-1.5s}
+#teacherPanel{display:none}.hidden{display:none!important}
+#qrBox{display:none;margin:12px auto;padding:15px;background:#fff;border-radius:10px;max-width:330px}
+#qrcode{margin:10px auto;width:150px}
+.small{font-size:13px;color:#666}.count{font-size:15px;color:#555;margin-top:8px}
+.question-list{display:flex;flex-wrap:wrap;gap:5px;justify-content:center;margin-top:10px}
+.question-list button{font-size:13px;padding:7px 9px;background:#777}
+.question-list button.active{background:#1677e8}
+@media(max-width:768px){#canvas-container,#teacherPanel{display:none!important} header{padding-top:22px}.controls{margin:20px 12px}input[type=text]{width:100%;margin-bottom:8px}button{width:100%;margin:4px 0}.student-only{display:block}}
+</style>
+</head>
+<body>
+<header>
+<h1>✨ 2학기 과학 OT 워드클라우드</h1>
+<div id="question">질문을 불러오는 중...</div>
+<div class="badge" id="modeBadge"></div>
+</header>
+
+<div class="controls" id="studentPanel">
+<input type="text" id="wordInput" maxlength="30" placeholder="한 단어로 입력해 보세요" autocomplete="off">
+<button onclick="addWord()">입력</button>
+<div class="small">친구들이 입력한 단어가 선생님 화면에 실시간으로 나타납니다.</div>
+</div>
+
+<div class="controls" id="teacherPanel">
+<div><strong id="teacherStatus">교사 화면</strong></div>
+<div class="question-list" id="questionList"></div>
+<button class="green" onclick="nextQuestion()">다음 질문 ▶</button>
+<button class="danger" onclick="resetCloud()">현재 질문 초기화</button>
+<button class="secondary" onclick="toggleQR()">학생용 QR 코드</button>
+<div class="small">질문을 바꾸면 현재 질문의 워드클라우드가 자동으로 새로 시작됩니다.</div>
+</div>
+
+<div id="qrBox">
+<strong>📱 학생들은 이 QR코드를 스캔하세요</strong>
+<div id="qrcode"></div>
+<div class="small" id="studentUrl"></div>
+</div>
+
+<div id="canvas-container"><div id="wordCanvas"></div></div>
+<div class="count" id="count"></div>
+
+<script>
+// ============================================================
+// ① Firebase 설정: 선생님 본인의 Firebase 프로젝트 정보를 넣어주세요.
+// ============================================================
+const firebaseConfig = {
+  apiKey: "여기에_API_KEY",
+  authDomain: "여기에.firebaseapp.com",
+  databaseURL: "https://여기에-default-rtdb.firebaseio.com",
+  projectId: "여기에",
+  storageBucket: "여기에.appspot.com",
+  messagingSenderId: "여기에",
+  appId: "여기에"
+};
+
+// ============================================================
+// ② 2학기 과학 OT 질문 15개
+// ============================================================
+const QUESTIONS = [
+ "여름방학 하면 가장 먼저 떠오르는 단어는?",
+ "이번 방학에 가장 기억에 남는 일은?",
+ "방학 동안 가장 많이 먹은 음식은?",
+ "이번 여름방학을 한 단어로 표현한다면?",
+ "여름 하면 떠오르는 과학 현상은?",
+ "일상생활에서 가장 신기하다고 생각하는 과학 현상은?",
+ "과학 하면 가장 먼저 떠오르는 것은?",
+ "가장 재미있을 것 같은 과학 분야는?",
+ "가장 어려울 것 같은 과학 분야는?",
+ "과학 시간에 해 보고 싶은 실험은?",
+ "과학자가 된다면 연구해 보고 싶은 것은?",
+ "과학 시간에 가장 기대되는 활동은?",
+ "내가 가질 수 있다면 좋은 초능력은?",
+ "타임머신을 탄다면 과거와 미래 중 어디로 가고 싶은가?",
+ "과학을 한 단어로 표현한다면?"
+];
+
+const params = new URLSearchParams(location.search);
+const isTeacher = params.get("teacher") === "1";
+const room = params.get("room") || "science-ot-2026";
+let currentQ = 0;
+let wordCounts = {};
+
+function firebaseReady(){
+  return firebaseConfig.apiKey && !firebaseConfig.apiKey.startsWith("여기에");
+}
+if(!firebaseReady()){
+  document.getElementById("question").textContent="Firebase 설정이 필요합니다.";
+  document.getElementById("modeBadge").textContent="설정 전 미리보기";
+} else {
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.database();
+  const roomRef = db.ref("rooms/" + room);
+
+  roomRef.child("question").on("value", s => {
+    currentQ = Number(s.val() || 0);
+    updateQuestionUI();
+  });
+  roomRef.child("words/" + currentQ).on("value", s => {
+    wordCounts = s.val() || {};
+    drawWordCloud();
+    updateCount();
+  });
+
+  window.db = db; window.roomRef = roomRef;
+  updateQuestionUI();
+}
+
+function updateQuestionUI(){
+  document.getElementById("question").textContent = `Q${currentQ+1}. ${QUESTIONS[currentQ]}`;
+  document.getElementById("modeBadge").textContent = isTeacher ? `교사 화면 · ${room}` : "학생 참여 화면";
+  if(isTeacher){
+    document.getElementById("teacherPanel").style.display="block";
+    document.getElementById("studentPanel").style.display="none";
+    buildQuestionButtons();
+  }
+}
+function buildQuestionButtons(){
+  const box=document.getElementById("questionList"); box.innerHTML="";
+  QUESTIONS.forEach((q,i)=>{
+    const b=document.createElement("button"); b.textContent=`Q${i+1}`;
+    if(i===currentQ)b.classList.add("active");
+    b.onclick=()=>setQuestion(i); box.appendChild(b);
+  });
+}
+function setQuestion(i){
+  if(!window.roomRef)return;
+  currentQ=i; window.roomRef.update({question:i});
+}
+function nextQuestion(){ if(currentQ<QUESTIONS.length-1)setQuestion(currentQ+1); else alert("15개 질문이 모두 끝났습니다!"); }
+
+function addWord(){
+  const input=document.getElementById("wordInput");
+  let word=input.value.trim().replace(/[.#$\/\[\]]/g,"");
+  if(!word){alert("단어를 입력해주세요.");return}
+  if(!window.roomRef){alert("Firebase 설정을 먼저 완료해주세요.");return}
+  const ref=window.roomRef.child("words/"+currentQ+"/"+word);
+  ref.transaction(v=>(v||0)+1);
+  input.value=""; input.focus();
+}
+document.getElementById("wordInput").addEventListener("keydown",e=>{if(e.key==="Enter")addWord()});
+
+function drawWordCloud(){
+  const c=document.getElementById("wordCanvas"); c.innerHTML="";
+  const list=Object.keys(wordCounts).map(w=>[w,20+wordCounts[w]*9]);
+  if(!list.length)return;
+  WordCloud(c,{list,fontFamily:"Malgun Gothic, sans-serif",weightFactor:1,color:"random-dark",backgroundColor:"transparent",rotateRatio:0,
+    classes:()=>`float-word delay-${Math.floor(Math.random()*5)+1}`});
+}
+function updateCount(){
+  const total=Object.values(wordCounts).reduce((a,b)=>a+Number(b),0);
+  document.getElementById("count").textContent=`현재 질문 응답 ${total}개 · 단어 ${Object.keys(wordCounts).length}개`;
+}
+function resetCloud(){
+  if(!isTeacher||!window.roomRef)return;
+  if(confirm(`Q${currentQ+1}의 응답을 모두 지울까요?`))window.roomRef.child("words/"+currentQ).remove();
+}
+function toggleQR(){
+  const box=document.getElementById("qrBox");
+  if(box.style.display==="block"){box.style.display="none";return}
+  box.style.display="block";
+  const qr=document.getElementById("qrcode"); qr.innerHTML="";
+  const studentUrl=location.origin+location.pathname+"?room="+encodeURIComponent(room);
+  new QRCode(qr,{text:studentUrl,width:150,height:150});
+  document.getElementById("studentUrl").textContent=studentUrl;
+}
+
+// 교사 화면은 기본적으로 워드클라우드 표시. 학생 모바일에서는 CSS로 숨김.
+if(isTeacher) document.getElementById("canvas-container").style.display="block";
+else document.getElementById("canvas-container").style.display="none";
+</script>
+</body>
+</html>
